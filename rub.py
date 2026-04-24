@@ -1,78 +1,175 @@
+import os
 import json
 import time
-import os
+import shutil
 import logging
+import traceback
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from dotenv import load_dotenv
+from rubpy import RubikaClient
+from rubpy.exceptions import *
 
-QUEUE_FILE = Path("queue/tasks.jsonl")
-LOG_FILE = Path("logs/app.log")
+# =========================
+# Load ENV
+# =========================
+
+load_dotenv()
+
+RUBIKA_SESSION = os.getenv("RUBIKA_SESSION")
+TARGET_CHANNEL = os.getenv("TARGET_CHANNEL")
+
+QUEUE_FILE = "tasks.jsonl"
+FAILED_FILE = "failed.jsonl"
+PROCESSING_FILE = "processing.json"
+
+DOWNLOAD_DIR = Path("downloads")
+DOWNLOAD_DIR.mkdir(exist_ok=True)
+
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", 5))
+BASE_RETRY_DELAY = int(os.getenv("RETRY_DELAY", 3))
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", 2))
+
+KEEP_EXTENSIONS = {".mp4", ".mp3", ".pdf", ".jpg", ".png", ".zip"}
+
+# =========================
+# Logging (JSON structured)
+# =========================
 
 logging.basicConfig(
-    filename=LOG_FILE,
+    filename="worker.log",
     level=logging.INFO,
-    format="%(asctime)s [RUB] %(levelname)s: %(message)s",
+    format="%(message)s"
 )
 
+def log(level, message, **kwargs):
+    entry = {
+        "level": level,
+        "message": message,
+        "timestamp": time.time(),
+        **kwargs
+    }
+    logging.info(json.dumps(entry, ensure_ascii=False))
 
-def get_next_task():
-    if not QUEUE_FILE.exists():
+
+# =========================
+# Helpers
+# =========================
+
+def is_retryable_error(e: Exception) -> bool:
+    retry_keywords = [
+        "timeout",
+        "gateway",
+        "temporarily",
+        "chunk",
+        "connection",
+        "rate"
+    ]
+    return any(k in str(e).lower() for k in retry_keywords)
+
+
+def send_with_retry(client, file_path, caption):
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            client.send_document(
+                TARGET_CHANNEL,
+                file_path,
+                caption=caption
+            )
+            log("INFO", "file_sent", file=file_path)
+            return True
+
+        except Exception as e:
+            retryable = is_retryable_error(e)
+
+            log("ERROR", "send_failed",
+                file=file_path,
+                attempt=attempt,
+                error=str(e),
+                retryable=retryable)
+
+            if not retryable:
+                raise e
+
+            delay = BASE_RETRY_DELAY * (2 ** (attempt - 1))
+            time.sleep(delay)
+
+    raise Exception("Max retries exceeded")
+
+
+def pop_first_task():
+    if not os.path.exists(QUEUE_FILE):
         return None
 
-    with open(QUEUE_FILE, "r") as f:
+    with open(QUEUE_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     if not lines:
         return None
 
-    task = json.loads(lines[0])
-
-    with open(QUEUE_FILE, "w") as f:
+    first = lines[0]
+    with open(QUEUE_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines[1:])
 
-    return task
+    return json.loads(first)
 
 
-def upload_to_rubika(file_path, target):
-    # اینجا بعداً API واقعی روبیکا قرار می‌گیرد
-    logging.info(f"Uploading {file_path} to {target}")
-    time.sleep(3)
-    logging.info(f"Uploaded {file_path}")
+def append_failed(task, error):
+    with open(FAILED_FILE, "a", encoding="utf-8") as f:
+        task["error"] = str(error)
+        f.write(json.dumps(task, ensure_ascii=False) + "\n")
 
 
-def worker():
-    logging.info("Rubika worker started")
+# =========================
+# Task Processor
+# =========================
 
-    while True:
-        task = get_next_task()
+def process_task(client, task):
+    try:
+        if task["type"] != "local_file":
+            return
 
-        if not task:
-            time.sleep(5)
-            continue
+        path = Path(task["path"])
+        caption = task.get("caption", "")
 
-        file_path = task.get("file_path")
-        target = task.get("target")
+        if not path.exists():
+            raise Exception("File not found")
 
-        if not file_path or not os.path.exists(file_path):
-            logging.error(f"File not found: {file_path}")
-            continue
+        send_with_retry(client, str(path), caption)
 
-        try:
-            upload_to_rubika(file_path, target)
+        # delete after success
+        path.unlink(missing_ok=True)
 
-            try:
-                os.remove(file_path)
-                logging.info(f"Deleted local file: {file_path}")
-            except Exception as e:
-                logging.warning(f"Could not delete file {file_path}: {e}")
+    except Exception as e:
+        append_failed(task, e)
+        log("ERROR", "task_failed", error=str(e), task=task)
+        traceback.print_exc()
 
-        except Exception as e:
-            logging.error(f"Upload failed: {e}")
 
-            with open(QUEUE_FILE, "a") as f:
-                f.write(json.dumps(task) + "\n")
+# =========================
+# Worker Loop
+# =========================
 
-            time.sleep(5)
+def worker_loop():
+
+    if not RUBIKA_SESSION:
+        raise Exception("RUBIKA_SESSION not set")
+
+    log("INFO", "worker_started")
+
+    with RubikaClient(session=RUBIKA_SESSION) as client:
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+
+            while True:
+                task = pop_first_task()
+
+                if not task:
+                    time.sleep(2)
+                    continue
+
+                executor.submit(process_task, client, task)
 
 
 if __name__ == "__main__":
-    worker()
+    worker_loop()
