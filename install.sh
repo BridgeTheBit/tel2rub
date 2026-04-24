@@ -8,7 +8,7 @@ GITHUB_REPO="BridgeTheBit/tel2rub"
 INSTALL_DIR="/opt/tel2rub"
 BACKUP_DIR="/opt/tel2rub_backup"
 SERVICE_NAME="tel2rub"
-APP_USER="tel2rub"
+APP_USER="root"
 
 GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
