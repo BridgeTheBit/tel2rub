@@ -4,6 +4,7 @@ from dotenv import set_key, load_dotenv
 from rubpy import Client as RubikaClient
 
 ENV_FILE = ".env"
+SESSION = "rubsession"
 SESSION_FILE = "rubika.session"
 
 
@@ -19,7 +20,7 @@ def create_new_session():
         print("❌ Invalid phone number")
         return None
 
-    client = RubikaClient()
+    client = RubikaClient(name=SESSION)
 
     print("Sending verification code...")
     try:
