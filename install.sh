@@ -80,6 +80,9 @@ mv ${NEW_SOURCE} ${INSTALL_DIR}
 
 cd ${INSTALL_DIR}
 
+# ensure installer_session.py exists inside install folder
+cp -f installer_session.py ${INSTALL_DIR}/
+
 echo ${LATEST_TAG} > VERSION
 
 echo -e "${YELLOW}Setting up Python virtual environment...${NC}"
@@ -90,22 +93,43 @@ pip install -r requirements.txt
 
 clear
 
+# ------------------------------
+# CREATE .env if missing
+# ------------------------------
 if [ ! -f "${INSTALL_DIR}/.env" ]; then
- echo
- echo -e "${GREEN}Enter configuration values:${NC}"
- read -p "API_ID: " API_ID
- read -p "API_HASH: " API_HASH
- read -p "BOT_TOKEN: " BOT_TOKEN
- read -p "RUBIKA_SESSION: " RUBIKA_SESSION
-
+ echo -e "${GREEN}Creating .env file...${NC}"
  cat > ${INSTALL_DIR}/.env <<EOF
-API_ID=${API_ID}
-API_HASH=${API_HASH}
-BOT_TOKEN=${BOT_TOKEN}
-RUBIKA_SESSION=${RUBIKA_SESSION}
+API_ID=
+API_HASH=
+BOT_TOKEN=
+RUBIKA_SESSION=
 EOF
 fi
 
+echo -e "${YELLOW}Configuring API credentials...${NC}"
+read -p "API_ID: " API_ID
+read -p "API_HASH: " API_HASH
+read -p "BOT_TOKEN: " BOT_TOKEN
+
+sed -i "s|API_ID=.*|API_ID=${API_ID}|g" ${INSTALL_DIR}/.env
+sed -i "s|API_HASH=.*|API_HASH=${API_HASH}|g" ${INSTALL_DIR}/.env
+sed -i "s|BOT_TOKEN=.*|BOT_TOKEN=${BOT_TOKEN}|g" ${INSTALL_DIR}/.env
+
+# --------------------------------
+# SESSION CREATION / SELECTION
+# --------------------------------
+echo -e "${YELLOW}Setting up Rubika session...${NC}"
+
+python3 installer_session.py || python installer_session.py
+
+if [ $? -ne 0 ]; then
+ echo -e "${RED}Rubika session creation failed${NC}"
+ exit 1
+fi
+
+# --------------------------------
+# CREATE SYSTEM USER
+# --------------------------------
 if ! id "$APP_USER" &>/dev/null; then
  echo -e "${YELLOW}Creating system user...${NC}"
  useradd -r -s /bin/false ${APP_USER}
@@ -113,10 +137,17 @@ fi
 
 chown -R ${APP_USER}:${APP_USER} ${INSTALL_DIR}
 
+# --------------------------------
+# INSTALL CLI COMMAND
+# --------------------------------
 echo -e "${YELLOW}Installing CLI command...${NC}"
+chmod -w ${INSTALL_DIR}/tel2rub
 chmod +x ${INSTALL_DIR}/tel2rub
 ln -sf ${INSTALL_DIR}/tel2rub /usr/local/bin/tel2rub
 
+# --------------------------------
+# CREATE SYSTEMD SERVICE
+# --------------------------------
 echo -e "${YELLOW}Installing systemd service...${NC}"
 
 cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
