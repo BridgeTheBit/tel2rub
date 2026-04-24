@@ -1,8 +1,8 @@
 #!/bin/bash
 
 SERVICE="tel2rub"
-REPO_DIR="/root/tel2rub"
-VERSION="2.0.0"
+REPO_DIR="/opt/tel2rub"
+VERSION=$(cat $REPO_DIR/VERSION 2>/dev/null || echo "unknown")
 
 YELLOW="\e[33m"
 GREEN="\e[32m"
@@ -32,12 +32,12 @@ echo -e "Downloads:    ${YELLOW}$(folder_size $REPO_DIR/downloads)${NC}"
 echo -e "Logs:         ${YELLOW}$(folder_size $REPO_DIR/logs)${NC}"
 echo ""
 echo "1) Status"
-echo "2) Logs"
+echo "2) Live Logs"
 echo "3) Restart Service"
 echo "4) Stop Service"
 echo "5) Start Service"
-echo "6) Update (with backup)"
-echo "7) Uninstall"
+echo "6) Update (Auto Backup & Rollback)"
+echo "7) Uninstall Completely"
 echo "8) Exit"
 echo ""
 read -p "Select: " choice
@@ -45,7 +45,7 @@ read -p "Select: " choice
 case $choice in
 
 1)
-systemctl status $SERVICE
+systemctl status $SERVICE --no-pager
 read -p "Press Enter..."
 ;;
 
@@ -54,36 +54,27 @@ tail -f $REPO_DIR/logs/app.log
 ;;
 
 3)
-sudo systemctl restart $SERVICE
+systemctl restart $SERVICE
 echo -e "${GREEN}Service restarted.${NC}"
 sleep 1
 ;;
 
 4)
-sudo systemctl stop $SERVICE
+systemctl stop $SERVICE
 echo -e "${RED}Service stopped.${NC}"
 sleep 1
 ;;
 
 5)
-sudo systemctl start $SERVICE
+systemctl start $SERVICE
 echo -e "${GREEN}Service started.${NC}"
 sleep 1
 ;;
 
 6)
-echo -e "${YELLOW}Creating backup...${NC}"
-tar -czf $REPO_DIR/backup_$(date +%Y%m%d).tar.gz $REPO_DIR
-
-echo -e "${GREEN}Updating repository...${NC}"
-cd $REPO_DIR || exit
-git pull
-
-source venv/bin/activate
-pip install -r requirements.txt
-
-sudo systemctl restart $SERVICE
-echo -e "${GREEN}Update complete.${NC}"
+echo -e "${YELLOW}Running official updater...${NC}"
+bash <(curl -s https://raw.githubusercontent.com/BridgeTheBit/tel2rub/main/install.sh)
+echo -e "${GREEN}Update completed.${NC}"
 sleep 2
 ;;
 
@@ -92,14 +83,15 @@ echo -e "${RED}Are you sure you want to uninstall Tel2Rub? (y/n)${NC}"
 read -p "> " confirm
 
 if [[ "$confirm" == "y" ]]; then
-    sudo systemctl stop $SERVICE
-    sudo systemctl disable $SERVICE
-    sudo rm /etc/systemd/system/$SERVICE.service
-    sudo systemctl daemon-reload
+    systemctl stop $SERVICE
+    systemctl disable $SERVICE
+    rm -f /etc/systemd/system/$SERVICE.service
+    systemctl daemon-reload
 
+    rm -f /usr/local/bin/tel2rub
     rm -rf $REPO_DIR
 
-    echo -e "${GREEN}Tel2Rub fully removed.${NC}"
+    echo -e "${GREEN}Tel2Rub completely removed.${NC}"
     exit
 else
     echo -e "${YELLOW}Canceled.${NC}"
