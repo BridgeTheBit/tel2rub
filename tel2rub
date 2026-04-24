@@ -1,28 +1,120 @@
-#!/usr/bin/env python3
-import os
+#!/bin/bash
 
-while True:
-    print("""
-1 status
-2 logs
-3 restart
-4 stop
-5 exit
-""")
+SERVICE="tel2rub"
+REPO_DIR="/root/tel2rub"
+VERSION="2.0.0"
 
-    c = input("choice: ")
+YELLOW="\e[33m"
+GREEN="\e[32m"
+RED="\e[31m"
+NC="\e[0m"
 
-    if c == "1":
-        os.system("systemctl status tel2rub")
+get_queue_count() {
+    if [ -f "$REPO_DIR/queue/tasks.jsonl" ]; then
+        wc -l < "$REPO_DIR/queue/tasks.jsonl"
+    else
+        echo 0
+    fi
+}
 
-    elif c == "2":
-        os.system("tail -f logs/app.log")
+folder_size() {
+    du -sh "$1" 2>/dev/null | cut -f1
+}
 
-    elif c == "3":
-        os.system("sudo systemctl restart tel2rub")
+while true
+do
+clear
+echo -e "${GREEN}=========== Tel2Rub Manager ===========${NC}"
+echo -e "Version: ${YELLOW}$VERSION${NC}"
+echo ""
+echo -e "Queue files:  ${YELLOW}$(get_queue_count) files${NC}"
+echo -e "Downloads:    ${YELLOW}$(folder_size $REPO_DIR/downloads)${NC}"
+echo -e "Logs:         ${YELLOW}$(folder_size $REPO_DIR/logs)${NC}"
+echo ""
+echo "1) Status"
+echo "2) Logs"
+echo "3) Restart Service"
+echo "4) Stop Service"
+echo "5) Start Service"
+echo "6) Update (with backup)"
+echo "7) Uninstall"
+echo "8) Exit"
+echo ""
+read -p "Select: " choice
 
-    elif c == "4":
-        os.system("sudo systemctl stop tel2rub")
+case $choice in
 
-    elif c == "5":
-        break
+1)
+systemctl status $SERVICE
+read -p "Press Enter..."
+;;
+
+2)
+tail -f $REPO_DIR/logs/app.log
+;;
+
+3)
+sudo systemctl restart $SERVICE
+echo -e "${GREEN}Service restarted.${NC}"
+sleep 1
+;;
+
+4)
+sudo systemctl stop $SERVICE
+echo -e "${RED}Service stopped.${NC}"
+sleep 1
+;;
+
+5)
+sudo systemctl start $SERVICE
+echo -e "${GREEN}Service started.${NC}"
+sleep 1
+;;
+
+6)
+echo -e "${YELLOW}Creating backup...${NC}"
+tar -czf $REPO_DIR/backup_$(date +%Y%m%d).tar.gz $REPO_DIR
+
+echo -e "${GREEN}Updating repository...${NC}"
+cd $REPO_DIR || exit
+git pull
+
+source venv/bin/activate
+pip install -r requirements.txt
+
+sudo systemctl restart $SERVICE
+echo -e "${GREEN}Update complete.${NC}"
+sleep 2
+;;
+
+7)
+echo -e "${RED}Are you sure you want to uninstall Tel2Rub? (y/n)${NC}"
+read -p "> " confirm
+
+if [[ "$confirm" == "y" ]]; then
+    sudo systemctl stop $SERVICE
+    sudo systemctl disable $SERVICE
+    sudo rm /etc/systemd/system/$SERVICE.service
+    sudo systemctl daemon-reload
+
+    rm -rf $REPO_DIR
+
+    echo -e "${GREEN}Tel2Rub fully removed.${NC}"
+    exit
+else
+    echo -e "${YELLOW}Canceled.${NC}"
+    sleep 1
+fi
+;;
+
+8)
+exit
+;;
+
+*)
+echo -e "${RED}Invalid option.${NC}"
+sleep 1
+;;
+
+esac
+done
