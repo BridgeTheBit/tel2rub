@@ -1,3 +1,4 @@
+[English Help](https://github.com/BridgeTheBit/tel2rub/blob/main/README.md)
 # 🚀 Tel2Rub — پل انتقال پیام از تلگرام به روبیکا
 
 **Tel2Rub** ابزاری حرفه‌ای برای انتقال پیام از تلگرام به روبیکا است.  
