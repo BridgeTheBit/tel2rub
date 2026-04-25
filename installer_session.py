@@ -69,14 +69,6 @@ def main():
     try:
         print("\n📲 Requesting verification code...")
         client.start(phone_number=phone)
-
-        print("✅ Code sent (check Rubika app first, then SMS).")
-
-        code = input("Enter code: ").strip()
-
-        print("🔐 Verifying...")
-        client.sign_in(phone, code)
-
         print("\n✅ Login successful!")
         print("Session saved as:", SESSION)
 
